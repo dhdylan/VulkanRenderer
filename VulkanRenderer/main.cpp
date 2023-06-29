@@ -24,6 +24,28 @@ const std::vector<const char*> physicalDeviceExtensions =
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
+/// <summary>
+/// Holds details about the swapchain capabilities of a surface
+/// </summary>
+struct SwapChainSupportDetails {
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
+};
+
+/// <summary>
+/// Utility struct to store Queue families that we'll be using.
+/// </summary>
+struct QueueFamilyIndices {
+    std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presentationFamily;
+
+    bool isComplete()
+    {
+        return graphicsFamily.has_value() && presentationFamily.has_value();
+    }
+};
+
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
@@ -149,6 +171,44 @@ private:
     }
 
     /// <summary>
+    /// Iterates through the available surface formats and picks one.
+    /// </summary>
+    /// <param name="availableFormats"></param>
+    /// <returns></returns>
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
+    {
+        for (const auto& format : availableFormats)
+        {
+            if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR && format.format == VK_FORMAT_B8G8R8A8_SRGB)
+            {
+                return format;
+            }
+        }
+
+        return availableFormats[0];
+    }
+
+    /// <summary>
+    /// Iterates through the available present modes and picks one.
+    /// </summary>
+    /// <param name="availablePresentModes"></param>
+    /// <returns></returns>
+    VkPresentModeKHR chooseSwapSurfacePresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes)
+    {
+        for (const auto& presentMode : availablePresentModes)
+        {
+            if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+            {
+                return presentMode;
+            }
+        }
+
+        return VK_PRESENT_MODE_FIFO_KHR;
+    }
+
+    
+
+    /// <summary>
     /// Gets all of the available validation layers that are supported and checks to make sure the one(s) we've requested (in global const "validationLayers") are supported.
     /// </summary>
     /// <returns>Will return false if a requested validation layer is not supported.</returns>
@@ -261,19 +321,6 @@ private:
     }
 
     /// <summary>
-    /// Utility struct to store Queue families that we'll be using.
-    /// </summary>
-    struct QueueFamilyIndices {
-        std::optional<uint32_t> graphicsFamily;
-        std::optional<uint32_t> presentationFamily;
-
-        bool isComplete()
-        {
-            return graphicsFamily.has_value() && presentationFamily.has_value();
-        }
-    };
-
-    /// <summary>
     /// Will attempt to find the index of each of the queue families that are present as members in "QueueFamilyIndices".
     /// </summary>
     /// <param name="device"></param>
@@ -311,16 +358,45 @@ private:
     }
 
     /// <summary>
+    /// Fills out a "SwapChainSupportDetails" struct
+    /// </summary>
+    /// <param name="device"></param>
+    /// <returns></returns>
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device)
+    {
+        SwapChainSupportDetails details;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
+        if (formatCount != 0)
+        {
+            details.formats.resize(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+        }
+
+        uint32_t presentModeCount = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+        if (presentModeCount != 0)
+        {
+            details.presentModes.resize(presentModeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+        }
+        
+        return details;
+    }
+
+    /// <summary>
     /// Enumerates through all available extension on given physical device, and checks to see if all of the requested extensions (in the const global vector) are present.
     /// </summary>
     /// <param name="physicalDevice"></param>
     /// <returns></returns>
-    bool checkDeviceExtensionSupport(VkPhysicalDevice _physicalDevice)
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device)
     {
         uint32_t extensionsCount = 0;
-        vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &extensionsCount, nullptr);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionsCount, nullptr);
         std::vector<VkExtensionProperties> availableExtensions(extensionsCount);
-        vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &extensionsCount, availableExtensions.data());
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionsCount, availableExtensions.data());
 
         std::set<std::string>requiredExtensions(physicalDeviceExtensions.begin(), physicalDeviceExtensions.end());
 
@@ -339,12 +415,19 @@ private:
     /// </summary>
     /// <param name="device"></param>
     /// <returns></returns>
-    bool isDeviceSuitable(VkPhysicalDevice _physicalDevice)
+    bool isDeviceSuitable(VkPhysicalDevice device)
     {
-        QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
-        bool extensionsSupported = checkDeviceExtensionSupport(_physicalDevice);
+        QueueFamilyIndices indices = findQueueFamilies(device);
+        bool extensionsSupported = checkDeviceExtensionSupport(device);
 
-        return indices.isComplete() && extensionsSupported;
+        bool swapChainAcceptable = false;
+        if (extensionsSupported)
+        {
+            SwapChainSupportDetails details = querySwapChainSupport(device);
+            swapChainAcceptable = !details.formats.empty() && !details.presentModes.empty();
+        }
+
+        return indices.isComplete() && extensionsSupported && swapChainAcceptable;
     }
 
     /// <summary>
