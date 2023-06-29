@@ -1,11 +1,15 @@
+#define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 
 #include <iostream>
 #include <stdexcept>
 #include <cstdlib>
 #include <vector>
 #include <optional>
+#include <set>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -15,13 +19,25 @@ const std::vector<const char*> validationLayers =
     "VK_LAYER_KHRONOS_validation"
 };
 
+const std::vector<const char*> physicalDeviceExtensions =
+{
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
 
-// since debug callbacks are an extension, we have to get the address of these functions manually
+/// <summary>
+/// Used to call "VkCreateDebugUtilMessengerEXT". Function address needs to be loaded at runtime since it is an extension. This function uses the same arguments as the actual Vulkan function.
+/// </summary>
+/// <param name="instance"></param>
+/// <param name="pCreateInfo"></param>
+/// <param name="pAllocator"></param>
+/// <param name="pDebugMessenger"></param>
+/// <returns>Will return false if function address couldn't be found.</returns>
 VkResult CreateDebugUtilsMessengerEXT(
     VkInstance instance,
     const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
@@ -38,7 +54,13 @@ VkResult CreateDebugUtilsMessengerEXT(
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 }
-
+ 
+/// <summary>
+/// Used to call "VkDestroyDebugUtilMessengerEXT". Function address needs to be loaded at runtime since it is an extension. This function uses the same arguments as the actual Vulkan function.
+/// </summary>
+/// <param name="instance"></param>
+/// <param name="debugMessenger"></param>
+/// <param name="pAllocator"></param>
 void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator)
 {
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -54,6 +76,10 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 
 class HelloTriangleApplication {
 public:
+
+    /// <summary>
+    /// Entry point of application.
+    /// </summary>
     void run() {
         initWindow();
         initVulkan();
@@ -67,7 +93,14 @@ private:
     VkDebugUtilsMessengerEXT debugMessenger;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device;
+    VkQueue graphicsQueue;
+    VkQueue presentationQueue;
+    VkSurfaceKHR surface;
 
+    /// <summary>
+    /// Just a utility function to fill out the descriptor struct.
+    /// </summary>
+    /// <param name="createInfo"> - Pass by reference</param>
     void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
     {
         createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -77,6 +110,14 @@ private:
         createInfo.pUserData = nullptr;
     }
 
+    /// <summary>
+    /// Gets called whenever there is a validation message. Function signature is determined by Vulkan.
+    /// </summary>
+    /// <param name="messageSeverity"></param>
+    /// <param name="messageType"></param>
+    /// <param name="pCallbackData"></param>
+    /// <param name="pUserData"></param>
+    /// <returns></returns>
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -86,7 +127,11 @@ private:
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
         return VK_FALSE;
     }
-    
+
+    /// <summary>
+    /// Gets all of the required extensions for GLFW to operate with Vulkan.
+    /// </summary>
+    /// <returns> A vector of all of the necessary extensions as char* strings</returns>
     std::vector<const char*> getRequiredExtensions()
     {
         uint32_t glfwExtensionCount = 0;
@@ -103,6 +148,10 @@ private:
         return extensions;
     }
 
+    /// <summary>
+    /// Gets all of the available validation layers that are supported and checks to make sure the one(s) we've requested (in global const "validationLayers") are supported.
+    /// </summary>
+    /// <returns>Will return false if a requested validation layer is not supported.</returns>
     bool checkValidationLayerSupport()
     {
         uint32_t layerCount;
@@ -136,6 +185,9 @@ private:
         return true;
     }
 
+    /// <summary>
+    /// Initializes GLFW and creates a window. Sotres window in private class member "window"
+    /// </summary>
     void initWindow() {
         glfwInit();
 
@@ -145,6 +197,9 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
+    /// <summary>
+    /// Calls "vkCreateInstance", stores instance in private member "instance". Checks for validation layer support before doing so.
+    /// </summary>
     void createInstance() {
         if (enableValidationLayers && !checkValidationLayerSupport())
         {
@@ -181,15 +236,15 @@ private:
         auto extensions = getRequiredExtensions();
         createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         createInfo.ppEnabledExtensionNames = extensions.data();
-        createInfo.enabledLayerCount = 0;
-
-        checkVulkanExtensions();
 
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
             throw std::runtime_error("failed to create instance!");
         }
     }
 
+    /// <summary>
+    /// Enumerates through all avilable extensions.
+    /// </summary>
     void checkVulkanExtensions()
     {
         uint32_t extensionCount = 0;
@@ -205,15 +260,24 @@ private:
         }
     }
 
+    /// <summary>
+    /// Utility struct to store Queue families that we'll be using.
+    /// </summary>
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> presentationFamily;
 
         bool isComplete()
         {
-            return graphicsFamily.has_value();
+            return graphicsFamily.has_value() && presentationFamily.has_value();
         }
     };
 
+    /// <summary>
+    /// Will attempt to find the index of each of the queue families that are present as members in "QueueFamilyIndices".
+    /// </summary>
+    /// <param name="device"></param>
+    /// <returns></returns>
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device)
     {
         QueueFamilyIndices indices;
@@ -228,22 +292,64 @@ private:
             if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
                 indices.graphicsFamily = i;
-
-                if (indices.isComplete())
-                    break;
             }
+
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            if (presentSupport)
+            {
+                indices.presentationFamily = i;
+            }
+
+            if (indices.isComplete())
+                break;
+
             i++;
         }
 
         return indices;
     }
 
-    bool isDeviceSuitable(VkPhysicalDevice device)
+    /// <summary>
+    /// Enumerates through all available extension on given physical device, and checks to see if all of the requested extensions (in the const global vector) are present.
+    /// </summary>
+    /// <param name="physicalDevice"></param>
+    /// <returns></returns>
+    bool checkDeviceExtensionSupport(VkPhysicalDevice _physicalDevice)
     {
-        QueueFamilyIndices indices = findQueueFamilies(device);
-        return indices.isComplete();
+        uint32_t extensionsCount = 0;
+        vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &extensionsCount, nullptr);
+        std::vector<VkExtensionProperties> availableExtensions(extensionsCount);
+        vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &extensionsCount, availableExtensions.data());
+
+        std::set<std::string>requiredExtensions(physicalDeviceExtensions.begin(), physicalDeviceExtensions.end());
+
+        // We have all the available extensions, and we have the required ones, so if we loop through all of the available ones and erase them from the vector of requestedExtensions
+        // then we can just check to see if the vector has anything left. If it's empty, that means we're good to go.
+        for (const auto& extension : availableExtensions)
+        {
+            requiredExtensions.erase(extension.extensionName);
+        }
+
+        return requiredExtensions.empty(); // If list is empty, they were all checked off.
     }
 
+    /// <summary>
+    /// Verifies a device is suitable for our program.
+    /// </summary>
+    /// <param name="device"></param>
+    /// <returns></returns>
+    bool isDeviceSuitable(VkPhysicalDevice _physicalDevice)
+    {
+        QueueFamilyIndices indices = findQueueFamilies(_physicalDevice);
+        bool extensionsSupported = checkDeviceExtensionSupport(_physicalDevice);
+
+        return indices.isComplete() && extensionsSupported;
+    }
+
+    /// <summary>
+    /// enumerates through physical devices available and picks one to use as the physical device.
+    /// </summary>
     void pickPhysicalDevice()
     {
         uint32_t deviceCount = 0;
@@ -270,28 +376,39 @@ private:
         }
     }
 
+    /// <summary>
+    /// Creates a logical device with queue families created based off of the "QueueFamilyIndices" struct. Hooks up validation laers in create info struct here as well.
+    /// </summary>
     void createLogicalDevice()
     {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
 
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-        queueCreateInfo.queueCount = 1;
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentationFamily.value() };
 
         float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        for (uint32_t queueFamily : uniqueQueueFamilies)
+        {
+            VkDeviceQueueCreateInfo queueCreateInfo{};
+            queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex = queueFamily;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
 
         VkPhysicalDeviceFeatures deviceFeatures{};
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.pQueueCreateInfos = &queueCreateInfo;
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.pQueueCreateInfos = queueCreateInfos.data();
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 
         createInfo.pEnabledFeatures = &deviceFeatures;
 
-        createInfo.enabledExtensionCount = 0;
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(physicalDeviceExtensions.size());
+        createInfo.ppEnabledExtensionNames = physicalDeviceExtensions.data();
 
         if (enableValidationLayers)
         {
@@ -306,15 +423,36 @@ private:
         {
             throw std::runtime_error("Logical device creation failed.");
         }
+
+        vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+        vkGetDeviceQueue(device, indices.presentationFamily.value(), 0, &presentationQueue);
     }
 
+    /// <summary>
+    /// Uses "glfwCreateSurface" to create a VkSurfaceKHR. Populates private member "surface".
+    /// </summary>
+    void createSurface()
+    {
+        if (glfwCreateWindowSurface(instance, window, nullptr, &surface))
+        {
+            throw std::runtime_error("Failed to create window surface.");
+        }
+    }
+
+    /// <summary>
+    /// Initializes all of the vulkan resources required to work with the API.
+    /// </summary>
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
 
+    /// <summary>
+    /// If necessary, sets up debug messenger so you can see validation messages.
+    /// </summary>
     void setupDebugMessenger()
     {
         if (!enableValidationLayers) return;
@@ -342,6 +480,8 @@ private:
         {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         }
+
+        vkDestroySurfaceKHR(instance, surface, nullptr);
 
         vkDestroyInstance(instance, nullptr);
 
