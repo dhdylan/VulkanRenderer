@@ -122,6 +122,10 @@ private:
     VkQueue presentationQueue;
     VkSurfaceKHR surface;
     VkSwapchainKHR swapChain;
+    std::vector<VkImage> swapChainImages;
+    std::vector<VkImageView> swapChainImageViews;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
 
     /// <summary>
     /// Just a utility function to fill out the descriptor struct.
@@ -344,6 +348,14 @@ private:
         {
             throw std::runtime_error("Failed to create swapchain");
         }
+
+        uint32_t swapChainImageCount = 0;
+        vkGetSwapchainImagesKHR(device, swapChain, &swapChainImageCount, nullptr);
+        swapChainImages.resize(swapChainImageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &swapChainImageCount, swapChainImages.data());
+
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = extent;
     }
 
     /// <summary>
@@ -611,6 +623,19 @@ private:
         }
     }
 
+    void createImageViews()
+    {
+        swapChainImageViews.resize(swapChainImages.size());
+
+        for (size_t i = 0; i < swapChainImages.size(); i++)
+        {
+            VkImageViewCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = swapChainImages[i];
+
+        }
+    }
+
     /// <summary>
     /// Initializes all of the vulkan resources required to work with the API.
     /// </summary>
@@ -621,6 +646,7 @@ private:
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
     }
 
     /// <summary>
