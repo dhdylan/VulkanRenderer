@@ -13,6 +13,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <fstream>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -656,11 +657,59 @@ private:
     }
 
     /// <summary>
+    /// reads a file as binary and returns it as a vector of chars
+    /// </summary>
+    /// <param name="fileName"></param>
+    /// <returns></returns>
+    static std::vector<char> readFile(const std::string& fileName)
+    {
+        std::ifstream file(fileName, std::ios::ate | std::ios::binary); //by setting the ate flag here, the cursor starts at the end of the file.
+
+        if (!file.is_open())
+        {
+            throw std::runtime_error("Failed to open shader file.");
+        }
+
+        size_t fileSize = (size_t)file.tellg(); // since the cursor is a the end of the file we can just ask for tellg() which cleverly gives us how many bytes the file is.
+        std::vector<char> buffer(fileSize);
+
+        file.seekg(0);
+        file.read(buffer.data(), fileSize);
+
+        file.close();
+
+        return buffer;
+    }
+
+    VkShaderModule createShaderModule(const std::vector<char>& code)
+    {
+        VkShaderModuleCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        createInfo.codeSize = code.size();
+        createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+        VkShaderModule shaderModule;
+        if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Unable to create shader module.");
+        }
+
+        return shaderModule;
+    }
+
+    /// <summary>
     /// 
     /// </summary>
     void createGraphicsPipeline()
     {
+        auto vertShaderCode = readFile("shaders/vert.spv");
+        auto fragShaderCode = readFile("shaders.frag.spv");
 
+        VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+        VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+        vkDestroyShaderModule(device, fragShaderModule, nullptr);
     }
 
     /// <summary>
@@ -700,6 +749,7 @@ private:
     }
 
     void cleanup() {
+
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr);
         }
