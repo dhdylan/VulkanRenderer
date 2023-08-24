@@ -15,6 +15,7 @@
 #include <set>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -130,6 +131,7 @@ private:
     std::vector<VkImageView> swapChainImageViews;
     VkPipelineLayout pipelineLayout;
     VkRenderPass renderPass;
+    VkPipeline pipeline;
 
 
     /// <summary>
@@ -675,8 +677,8 @@ private:
     /// </summary>
     void createGraphicsPipeline()
     {
-        auto vertShaderCode = readFile("../../../shaders/shader.vert");
-        auto fragShaderCode = readFile("../../../shaders/shader.frag");
+        auto vertShaderCode = readFile("./shaders/shader.vert");
+        auto fragShaderCode = readFile("./shaders/shader.frag");
 
         VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
         VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -793,6 +795,27 @@ private:
             throw std::runtime_error("Unable to create graphics pipeline layout.");
         }
 
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = nullptr; // Optional
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = pipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, static_cast<uint32_t>(1), &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Unable to create graphics pipeline.");
+        }
+
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
     }
@@ -884,9 +907,12 @@ private:
     }
 
     void cleanup() {
+
+        vkDestroyPipeline(device, pipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
         vkDestroyRenderPass(device, renderPass, nullptr);
 
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         for (auto imageView : swapChainImageViews)
         {
             vkDestroyImageView(device, imageView, nullptr);
