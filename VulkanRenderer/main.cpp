@@ -1355,7 +1355,7 @@ private:
     void createTextureImage()
     {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load("./models/1_Tex_RGB_0.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         if (!pixels) {
@@ -1647,7 +1647,7 @@ private:
         std::vector<tinyobj::material_t> materials;
         std::string warn, err;
 
-        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, "models/model.obj", "models/")) {
+        if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
             throw std::runtime_error(warn + err);
         }
 
@@ -1677,11 +1677,6 @@ private:
 
                 indices.push_back(uniqueVertices[vertex]);
             }
-        }
-
-        for (int i = 0; i < static_cast<int>(vertices.size()); i++)
-        {
-            vertices[i].pos *= .005;
         }
     }
 
@@ -1738,9 +1733,8 @@ private:
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
         UniformBufferObject ubo{};
-        ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        ubo.model = glm::scale(ubo.model, glm::vec3(0.5f, 0.5f, 0.5f));
-        ubo.model = glm::rotate(ubo.model, glm::radians(12.0f) * time, glm::vec3(0.0f, 1.0f, 0.0f));
+        ubo.model = glm::mat4(1.0f);
+        ubo.model = glm::rotate(ubo.model, glm::radians(20.0f) * time, glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1; // this is to flip the clip space y component
