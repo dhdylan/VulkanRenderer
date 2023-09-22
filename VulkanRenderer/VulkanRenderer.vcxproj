@@ -147,10 +147,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Shader.cpp" />
     <ClCompile Include="TextureImage.cpp" />
     <ClCompile Include="VulkanBuffer.cpp" />
+    <ClCompile Include="VulkanCommandPool.cpp" />
+    <ClCompile Include="VulkanDescriptors.cpp" />
     <ClCompile Include="VulkanDevice.cpp" />
+    <ClCompile Include="VulkanGraphicsPipeline.cpp" />
     <ClCompile Include="VulkanImage.cpp" />
+    <ClCompile Include="VulkanRenderPass.cpp" />
     <ClCompile Include="VulkanSwapChain.cpp" />
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
@@ -160,10 +165,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="common.h" />
+    <ClInclude Include="Shader.h" />
     <ClInclude Include="TextureImage.h" />
+    <ClInclude Include="Utility.h" />
     <ClInclude Include="VulkanBuffer.h" />
+    <ClInclude Include="VulkanCommandPool.h" />
+    <ClInclude Include="VulkanDescriptors.h" />
     <ClInclude Include="VulkanDevice.h" />
+    <ClInclude Include="VulkanGraphicsPipeline.h" />
     <ClInclude Include="VulkanImage.h" />
+    <ClInclude Include="VulkanRenderPass.h" />
     <ClInclude Include="VulkanSwapChain.h" />
     <ClInclude Include="Window.h" />
   </ItemGroup>
