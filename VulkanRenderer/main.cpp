@@ -208,6 +208,7 @@ private:
     std::vector<VkCommandBuffer> commandBuffers;
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
+    VkSemaphore drawFinished;
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
     bool framebufferResized = false;
@@ -217,9 +218,16 @@ private:
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
+
+    // UBOs for MVP matrices for each object
+    std::vector<VkBuffer> firstUniformBuffers;
+    std::vector<VkDeviceMemory> firstUniformBuffersMemory;
+    std::vector<void*> firstUniformBuffersMapped;
+
+    std::vector<VkBuffer> secondUniformBuffers;
+    std::vector<VkDeviceMemory> secondUniformBuffersMemory;
+    std::vector<void*> secondUniformBuffersMapped;
+
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
     uint32_t mipLevels;
@@ -1098,6 +1106,10 @@ private:
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
+        // need to add another descriptor set to the program and bind it here i think
+
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
         vkCmdEndRenderPass(commandBuffer);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1121,6 +1133,7 @@ private:
         {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
                 vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
+                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &drawFinished) != VK_SUCCESS ||
                 vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
             {
                 throw std::runtime_error("failed to create synchronization objects for a frame!");
@@ -1275,15 +1288,31 @@ private:
     {
         VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-        uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+        // set size of firstUBO vector to the number of frames in flight
+        firstUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        firstUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        firstUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
+        // set the size of the second UBO vector to the number of frames in flight
+        secondUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        secondUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        secondUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+        // for each frame in flight create a memory buffer for the the first and second UBOs 
+        // and then map that memory to GPU memory
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
         {
-            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+            // first UBO
+            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, firstUniformBuffers[i], firstUniformBuffersMemory[i]);
 
-            vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+            //second UBO
+            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, secondUniformBuffers[i], secondUniformBuffersMemory[i]);
+
+            // first mapped UBO
+            vkMapMemory(device, firstUniformBuffersMemory[i], 0, bufferSize, 0, &firstUniformBuffersMapped[i]);
+
+            // second mapped UBO
+            vkMapMemory(device, secondUniformBuffersMemory[i], 0, bufferSize, 0, &secondUniformBuffersMapped[i]);
         }
     }
 
@@ -1322,7 +1351,7 @@ private:
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = uniformBuffers[i];
+            bufferInfo.buffer = firstUniformBuffers[i];
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
@@ -1821,6 +1850,8 @@ private:
 
     void updateUniformBuffer(uint32_t currentImage)
     {
+        // first UBO
+
         static auto startTime = std::chrono::high_resolution_clock::now();
         auto currentTime = std::chrono::high_resolution_clock::now();
         float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
@@ -1832,7 +1863,19 @@ private:
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1; // this is to flip the clip space y component
 
-        memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+        memcpy(firstUniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+
+        // second UBO
+
+        UniformBufferObject ubo2 = {};
+        ubo2.model = glm::mat4(1.0);
+        ubo2.model = glm::translate(ubo.model, glm::vec3(1.0, 1.0, 0.0));
+        ubo2.view = ubo.view;
+        ubo2.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+        ubo2.proj[1][1] *= -1; // this is to flip the clip space y component
+
+        memcpy(secondUniformBuffersMapped[currentImage], &ubo2, sizeof(ubo2));
+
     }
 
     void drawFrame()
@@ -1859,28 +1902,45 @@ private:
 
         updateUniformBuffer(currentFrame);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkSubmitInfo submitInfos[2] = {};
+        submitInfos[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-        VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
+        // first submit info waits for image available semaphore
+        VkSemaphore firstWaitSemaphore[] = { imageAvailableSemaphores[currentFrame] };
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffers[currentFrame];
-        VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
-        
-        if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
+        submitInfos[0].waitSemaphoreCount = 1;
+        submitInfos[0].pWaitSemaphores = firstWaitSemaphore;
+        submitInfos[0].pWaitDstStageMask = waitStages;
+        submitInfos[0].commandBufferCount = 1;
+        submitInfos[0].pCommandBuffers = &commandBuffers[currentFrame];
+        submitInfos[0].signalSemaphoreCount = 1;
+        // and then signals draw finished when done
+        submitInfos[0].pSignalSemaphores = &drawFinished;
+
+        // second semaphore waits for drawFinished
+        submitInfos[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfos[1].waitSemaphoreCount = 1;
+        submitInfos[1].pWaitSemaphores = &drawFinished;
+        submitInfos[1].pWaitDstStageMask = waitStages;
+        submitInfos[1].commandBufferCount = 1;
+        submitInfos[1].pCommandBuffers = &commandBuffers[currentFrame];
+        // and signal renderFinished
+        VkSemaphore secondSignalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
+        submitInfos[1].signalSemaphoreCount = 1;
+        submitInfos[1].pSignalSemaphores = secondSignalSemaphores;
+
+        updateUniformBuffer(currentFrame);
+
+        if (vkQueueSubmit(graphicsQueue, 2, submitInfos, inFlightFences[currentFrame]) != VK_SUCCESS) {
             throw std::runtime_error("failed to submit draw command buffer!");
         }
+
+
 
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = signalSemaphores;
+        presentInfo.pWaitSemaphores = secondSignalSemaphores;
         VkSwapchainKHR swapChains[] = { swapChain };
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
@@ -1958,8 +2018,11 @@ private:
         vkFreeMemory(device, depthImageMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroyBuffer(device, uniformBuffers[i], nullptr);
-            vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+            vkDestroyBuffer(device, firstUniformBuffers[i], nullptr);
+            vkDestroyBuffer(device, secondUniformBuffers[i], nullptr);
+
+            vkFreeMemory(device, firstUniformBuffersMemory[i], nullptr);
+            vkFreeMemory(device, secondUniformBuffersMemory[i], nullptr);
         }
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
