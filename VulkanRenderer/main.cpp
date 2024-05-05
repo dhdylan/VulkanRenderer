@@ -208,7 +208,6 @@ private:
     std::vector<VkCommandBuffer> commandBuffers;
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;
-    VkSemaphore drawFinished;
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
     bool framebufferResized = false;
@@ -1106,7 +1105,7 @@ private:
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-        // need to add another descriptor set to the program and bind it here i think
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame + 2], 0, nullptr);
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
@@ -1133,7 +1132,6 @@ private:
         {
             if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
                 vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
-                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &drawFinished) != VK_SUCCESS ||
                 vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
             {
                 throw std::runtime_error("failed to create synchronization objects for a frame!");
@@ -1318,17 +1316,21 @@ private:
 
     void createDescriptorPool()
     {
+        // this array describes DESCRIPTORS, not descriptor sets. 
+        // it is an array that describes how many of each type of descriptor we'll be allocating
         std::array<VkDescriptorPoolSize, 2> poolSizes{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolInfo.poolSizeCount = poolSizes.size();
         poolInfo.pPoolSizes = poolSizes.data();
-        poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        // max sets is 4 here since we are creating two descriptor sets for each object (an MVP UBO and an ImageSampler for each)
+        // and then two of each of those for each frame in flight
+        poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
 
         if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
             throw std::runtime_error("failed to create descriptor pool!");
@@ -1337,21 +1339,31 @@ private:
 
     void createDescriptorSets()
     {
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+        // four total descriptor set layouts because I will be creating four descriptor sets
+        // two for descriptor set 1 and 2, and two of each of those for each frame in flight.
+        // this is just an array of copies of the descriptor set layout (UBO and ImageSampler layout)
+        // since VkAllocateDescriptorSets requires that the VkDescriptorSetAllocateInfo struct has a pointer to every layout required for each descriptor set being allocated.
+        // Yes, it's a bit redundant here.
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT * 2, descriptorSetLayout);
+
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorPool = descriptorPool;
-        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        // we're allocating a total of 4 descriptor sets. 2 for each object
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT * 2);
         allocInfo.pSetLayouts = layouts.data();
 
-        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        // again, 2 for each object here
+        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT * 2);
         if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
             throw std::runtime_error("failed to allocate descriptor sets!");
         }
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        // again, four
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT * 2; i++) {
             VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = firstUniformBuffers[i];
+            // this syntax is goofy rn but this is what we doin
+            bufferInfo.buffer = (i < 2 ? firstUniformBuffers[i] : secondUniformBuffers[i - 2]);
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
 
@@ -1906,41 +1918,25 @@ private:
         submitInfos[0].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
         // first submit info waits for image available semaphore
-        VkSemaphore firstWaitSemaphore[] = { imageAvailableSemaphores[currentFrame] };
+        VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         submitInfos[0].waitSemaphoreCount = 1;
-        submitInfos[0].pWaitSemaphores = firstWaitSemaphore;
+        submitInfos[0].pWaitSemaphores = waitSemaphores;
         submitInfos[0].pWaitDstStageMask = waitStages;
         submitInfos[0].commandBufferCount = 1;
         submitInfos[0].pCommandBuffers = &commandBuffers[currentFrame];
         submitInfos[0].signalSemaphoreCount = 1;
         // and then signals draw finished when done
-        submitInfos[0].pSignalSemaphores = &drawFinished;
+        submitInfos[0].pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
 
-        // second semaphore waits for drawFinished
-        submitInfos[1].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfos[1].waitSemaphoreCount = 1;
-        submitInfos[1].pWaitSemaphores = &drawFinished;
-        submitInfos[1].pWaitDstStageMask = waitStages;
-        submitInfos[1].commandBufferCount = 1;
-        submitInfos[1].pCommandBuffers = &commandBuffers[currentFrame];
-        // and signal renderFinished
-        VkSemaphore secondSignalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
-        submitInfos[1].signalSemaphoreCount = 1;
-        submitInfos[1].pSignalSemaphores = secondSignalSemaphores;
-
-        updateUniformBuffer(currentFrame);
-
-        if (vkQueueSubmit(graphicsQueue, 2, submitInfos, inFlightFences[currentFrame]) != VK_SUCCESS) {
+        if (vkQueueSubmit(graphicsQueue, 1, submitInfos, inFlightFences[currentFrame]) != VK_SUCCESS) {
             throw std::runtime_error("failed to submit draw command buffer!");
         }
-
-
 
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = secondSignalSemaphores;
+        presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
         VkSwapchainKHR swapChains[] = { swapChain };
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
